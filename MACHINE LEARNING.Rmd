@@ -1,0 +1,187 @@
+---
+title: Practical Machine Learning project
+author: "dongzhilong"
+date: "2015Äê10ÔÂ25ÈÕ"
+output: html_document
+---
+introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement ¨C a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+The data can be downloaded using the below R script.
+
+Download the training and test data
+
+```{r}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "pml-training.csv"
+testFile  <- "pml-testing.csv"
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile)
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile)
+}
+```
+
+Reading and Cleaning Data, Processing and Slicing
+
+Any operation performed on the training set ought to be replicated on the test data too.
+
+```{r}
+library(caret)
+```
+
+```{r}
+library(corrplot)
+library(manipulate)
+library(xtable)
+data <- read.csv("pml-training.csv",na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv("pml-testing.csv",na.strings=c("NA","#DIV/0!",""))
+dim(data)
+```
+
+```{r}
+# remove columns woth more than 30% NAs
+data1 <- data[, colSums(is.na(data)) < nrow(data) * 0.3]
+test1 <- testing[, colSums(is.na(testing)) < nrow(testing) * 0.3]
+
+# remove all Near Zero Variance variables
+NZV <- nearZeroVar(data1, saveMetrics= TRUE)
+data2 <- data1[,!NZV$nzv]
+test2 <- test1[,!NZV$nzv]
+
+# remove unnecessary columns like user_name and time windows
+data3 <- data2[,-c(1:6)]
+test3 <- test2[,-c(1:6)]
+
+# set seed for reproducability and partition data into training and validation sets
+# assign 60% of data for training and 40% for validation set
+set.seed(1)
+inTrain <- createDataPartition(y=data3$classe, p=0.60, list=FALSE)
+training <- data3[inTrain,]
+valid <- data3[-inTrain,]
+```
+
+
+Since Random Forest is to be used to model the data, the correlation among the features are not going to be examined, but will be plotted to see if any patterns emerge
+
+```{r}
+# Examine correlation among features
+corrPlot <- cor(training[, -53])
+corrplot(corrPlot, method="color")
+```
+
+Data Modelling and evaluating in sample error
+
+Because of its accuracy and ability to handle large number of features, especially when the interactions between variables are unknown, flexibility to use unscaled variables and categorical variables, which reduces the need for cleaning and transforming variables, immunity from overfitting and noise, and insensitivity to correlation among the features, Random Forest is chosen to model the training data. A 4-fold Cross Validation shall be employed.
+
+```{r}
+rf1<- train(x=training[,-53],y=training$classe,method="rf",
+                trControl=trainControl(method = "cv", number = 4),
+                data=training,do.trace=F,ntree=250)
+
+rf1
+```
+
+```{r}
+# User and Elapsed time
+rf1$times
+```
+
+
+```{r}
+# Testing the model on the same data used to create it: to evaluate in sample error 
+pred_train_rf1 <- predict(rf1$finalModel,newdata=training)
+a <- confusionMatrix(pred_train_rf1,training$classe)
+print(xtable(as.matrix(a)),type="HTML")
+```
+
+```{r}
+# In Sample Error
+ISE_rf1<- 100- (mean((pred_train_rf1 == training$classe)*1)*100)
+ISE_rf1
+```
+
+```{r}
+# Out of Sample Error Estimate
+pred_valid_rf1 <- predict(rf1,valid)
+table(pred_valid_rf1,valid$classe)
+```
+
+
+```{r}
+OSE_rf1<-100 - (mean((pred_valid_rf1 == valid$classe)*1)*100)
+OSE_rf1
+```
+
+```{r}
+# Confusion Matrix
+b <- confusionMatrix(valid$classe,pred_valid_rf1)
+print(xtable(as.matrix(b)),type="HTML")
+```
+
+Applying the RF Data Model to test data
+
+The ¡®rf1¡¯ model developed using the training set shall be used to predict the ¡®classe¡¯ variable for the test set.
+
+```{r}
+pred_test_rf1 <- predict(rf1,test3[,-53])
+pred_test_rf1
+```
+
+```{r}
+table(pred_test_rf1)
+```
+
+Relative Importance of Features and parsimonius model development
+
+Random Forest can be used to determine the relative importance if each of the features. By eliminating the least influential ones, the model could become more parsinimonious.
+
+```{r}
+# Overall relative importance
+
+importance <- varImp(rf1, scale=FALSE)
+# Importance of each feature for each of the classe outcomes
+plot(importance)
+```
+
+```{r}
+dotPlot(importance, top = 15)
+```
+
+```{r}
+# Identifying the top 15 vriables
+
+variables <- varImp(rf1)
+vars <- variables[[1]]
+top.vars <- rownames(vars)[order(rowSums(vars), decreasing = TRUE)][1:15]
+
+# Examining the correlations again
+corrPlot1 <- cor(training[, top.vars])
+corrplot(corrPlot1, method="color")
+```
+
+
+
+
+
+
+
+
+
